@@ -1,6 +1,7 @@
 README
 LICENSE
 MANIFEST
+Changes
 Makefile.PL
 lib/My/Object.pm
 t/01-inheritance.t

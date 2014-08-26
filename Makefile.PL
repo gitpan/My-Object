@@ -11,5 +11,4 @@ WriteMakefile(
     VERSION_FROM => 'lib/My/Object.pm',
     ABSTRACT_FROM => 'lib/My/Object.pm',
     PREREQ_PM => { 'Test::More' => 0 },
-    realclean => { FILES => 'My-Object-*.tar.gz' },
 );

@@ -1,84 +1,82 @@
 use strict;
 use warnings;
 
-package My::Object {
-    BEGIN {
-        *VERSION = \'0.01';
-        *import = \&My::Object::Import::import;
-    }
-
-    our %PROTO;
-
-    sub BUILD {
-        my ($obj, %ini) = @_;
-        @$obj{keys %ini} = values %ini;
-    }
+package My::Object;
+BEGIN {
+    *VERSION = \'0.02';
+    *import = \&My::Object::Import::import;
 }
 
-package My::Object::Import {
-    use Carp qw(carp);
-    use Module::Loaded qw(is_loaded mark_as_loaded);
-    use Scalar::Util qw(refaddr);
+our %PROTO;
 
-    no strict 'refs';
-    no warnings 'once';
+sub BUILD {
+    my ($obj, %ini) = @_;
+    @$obj{keys %ini} = values %ini;
+}
 
-    sub create_accessor {
-        my ($name) = @_;
-        return sub : lvalue { shift->{$name} };
-    }
+package My::Object::Import;
+use Carp qw(carp);
+use Module::Loaded qw(is_loaded mark_as_loaded);
+use Scalar::Util qw(refaddr);
 
-    sub create_NEW {
-        my ($pkg) = @_;
+no strict 'refs';
+no warnings 'once';
+
+sub create_accessor {
+    my ($name) = @_;
+    return sub : lvalue { shift->{$name} };
+}
+
+sub create_NEW {
+    my ($pkg) = @_;
+    return sub {
+        my $suffix = @_ ? '_'.($_[0] =~ /([^:]+)$/ && $1) : '';
+        my $builder = \&{$pkg.'::BUILD'.$suffix};
         return sub {
-            my $suffix = @_ ? '_'.($_[0] =~ /([^:]+)$/ && $1) : '';
-            my $builder = \&{$pkg.'::BUILD'.$suffix};
-            return sub {
-                my $proto = \%{$pkg.'::PROTO'};
-                my $obj = bless { map {
-                    ($_, s/^-// ? $proto->{"-$_"}->() : $proto->{$_} )
-                } keys $proto }, $pkg;
+            my $proto = \%{$pkg.'::PROTO'};
+            my $obj = bless { map {
+                ($_, s/^-// ? $proto->{"-$_"}->() : $proto->{$_} )
+            } keys %$proto }, $pkg;
 
-                $builder->($obj, @_);
-                return $obj;
-            };
+            $builder->($obj, @_);
+            return $obj;
         };
+    };
+}
+
+sub import {
+    my ($parent, $defs) = @_;
+    my $pkg = caller;
+
+    my $proto = \%{$pkg.'::PROTO'};
+    @{$proto}{keys %{$parent.'::PROTO'}} = values %{$parent.'::PROTO'};
+    @{$proto}{keys %$defs} = values %$defs;
+
+    *{$pkg.'::import'} = \&My::Object::Import::import;
+    *{$pkg.'::NEW'} = create_NEW($pkg)
+        unless exists &{$pkg.'::NEW'};
+
+    for my $name (keys %{$parent.'::'}) {
+        next if !exists &{$parent.'::'.$name}
+            || $name =~ /^(?:NEW|import)$/;
+
+        if (defined &{$pkg.'::'.$name}) {
+            next if refaddr(\&{$pkg.'::'.$name})
+                == refaddr(\&{$parent.'::'.$name});
+            carp "Subroutine $name redefined in $pkg";
+        }
+        elsif (exists &{$pkg.'::'.$name}) {}
+        else { *{$pkg.'::'.$name} = \&{$parent.'::'.$name} }
     }
 
-    sub import {
-        my ($parent, $defs) = @_;
-        my $pkg = caller;
-
-        my $proto = \%{$pkg.'::PROTO'};
-        @{$proto}{keys %{$parent.'::PROTO'}} = values %{$parent.'::PROTO'};
-        @{$proto}{keys %$defs} = values %$defs;
-
-        *{$pkg.'::import'} = \&My::Object::Import::import;
-        *{$pkg.'::NEW'} = create_NEW($pkg)
-            unless exists &{$pkg.'::NEW'};
-
-        for my $name (keys %{$parent.'::'}) {
-            next if !exists &{$parent.'::'.$name}
-                || $name =~ /^(?:NEW|import)$/;
-
-            if (defined &{$pkg.'::'.$name}) {
-                next if refaddr(\&{$pkg.'::'.$name})
-                    == refaddr(\&{$parent.'::'.$name});
-                carp "Subroutine $name redefined in $pkg";
-            }
-            elsif (exists &{$pkg.'::'.$name}) {}
-            else { *{$pkg.'::'.$name} = \&{$parent.'::'.$name} }
-        }
-
-        for my $name (keys $proto) {
-            $name =~ s/^-//;
-            *{$pkg.'::'.$name} = create_accessor($name)
-                unless exists &{$pkg.'::'.$name};
-        }
-
-        mark_as_loaded($pkg)
-            unless is_loaded($pkg);
+    for my $name (keys %$proto) {
+        $name =~ s/^-//;
+        *{$pkg.'::'.$name} = create_accessor($name)
+            unless exists &{$pkg.'::'.$name};
     }
+
+    mark_as_loaded($pkg)
+        unless is_loaded($pkg);
 }
 
 1;
@@ -132,7 +130,7 @@ no inheritance, no type checking or other bells and whistles.
 This is not Moose; it is not even Mo.
 
 
-=head2 CLASS DECLARATION
+=head2 Class Declaration
 
 A class is just a package that invokes C<use> on another class, in
 particular C<My::Object>. This composes the callee into the caller, copying
@@ -145,7 +143,7 @@ automatically.
 Any sub defined within the package may be used as a method, with a reference
 to the object passed as first argument.
 
-=head3 DYNAMIC INITIALIZATION
+=head3 Dynamic Initialization
 
 Initializers are treated as constants by default. If you need to initialize
 a member dynamically, you may provide a sub reference as initializer.
@@ -165,7 +163,7 @@ the name proper.
     my $n2 = Local::Node::NEW->();
     printf "0x%X != 0x%X\n", refaddr($n1->children), refaddr($n2->children);
 
-=head3 CONFLICT RESOLUTION
+=head3 Conflict Resolution
 
 You may use multiple C<use> statements to compose several classes into
 the same package. Conflicts arise if the classes have methods with the same
@@ -213,7 +211,7 @@ the conflict:
     Local::AliceAndBob::NEW->()->transmogrify;
 
 
-=head2 OBJECT CONSTRUCTION
+=head2 Object Construction
 
 Any class automatically gets a sub C<NEW> that returns a reference to the
 default constructor, initializing member variables from named arguments:
@@ -234,7 +232,7 @@ package:
 It's best to do so at C<BEGIN> time.
 
 
-=head3 CUSTOM CONSTRUCTORS
+=head3 Custom Constructors
 
 If you want to provide a custom constructor, prefix the sub's name with
 C<BUILD_> and pass the name without prefix to C<NEW> :
